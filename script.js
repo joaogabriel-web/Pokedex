@@ -1,9 +1,11 @@
 const form = document.querySelector("#pokemon-form");
 const input = document.querySelector("#pokemon-name");
 const results = document.querySelector("#results");
+let activeSearch = 0;
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const searchId = ++activeSearch;
 
   // const name = input.value.trim().toLowerCase();
   const name = input.value
@@ -26,6 +28,8 @@ form.addEventListener("submit", async (event) => {
       `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(name)}`
     );
 
+    if (searchId !== activeSearch) return;
+
     if (response.status === 404) {
       showMessage("Pokémon não encontrado. Confira o nome e tente novamente.", true);
       return;
@@ -36,9 +40,13 @@ form.addEventListener("submit", async (event) => {
     }
 
     const pokemon = await response.json();
-    showPokemon(pokemon);
+    if (searchId === activeSearch) {
+      showPokemon(pokemon, searchId);
+    }
   } catch {
-    showMessage("Não foi possível acessar a PokéAPI. Tente novamente.", true);
+    if (searchId === activeSearch) {
+      showMessage("Não foi possível acessar a PokéAPI. Tente novamente.", true);
+    }
   }
 });
 
@@ -55,7 +63,7 @@ function showMessage(message, isError = false) {
   results.append(paragraph);
 }
 
-function showPokemon(pokemon) {
+function showPokemon(pokemon, searchId) {
   results.replaceChildren();
 
   const title = document.createElement("h2");
@@ -99,5 +107,129 @@ function showPokemon(pokemon) {
     abilities.append(item);
   }
 
-  results.append(details, abilitiesTitle, abilities);
+  const evolutionSection = document.createElement("section");
+  evolutionSection.classList.add("evolutions");
+
+  const evolutionTitle = document.createElement("h3");
+  evolutionTitle.textContent = "Evoluções:";
+
+  const loadingMessage = document.createElement("p");
+  loadingMessage.textContent = "Carregando evoluções...";
+  evolutionSection.append(evolutionTitle, loadingMessage);
+
+  results.append(details, abilitiesTitle, abilities, evolutionSection);
+  loadEvolutions(pokemon, evolutionSection, searchId);
+}
+
+async function loadEvolutions(pokemon, section, searchId) {
+  try {
+    const speciesResponse = await fetch(pokemon.species.url);
+    if (!speciesResponse.ok) {
+      throw new Error("Não foi possível carregar os dados da espécie.");
+    }
+
+    const species = await speciesResponse.json();
+    const chainResponse = await fetch(species.evolution_chain.url);
+    if (!chainResponse.ok) {
+      throw new Error("Não foi possível carregar a cadeia evolutiva.");
+    }
+
+    const chainData = await chainResponse.json();
+    const currentSpecies = findSpeciesInChain(
+      chainData.chain,
+      pokemon.species.name
+    );
+
+    if (!currentSpecies) {
+      throw new Error("O Pokémon não foi encontrado na cadeia evolutiva.");
+    }
+
+    if (searchId !== activeSearch) return;
+
+    section.replaceChildren();
+    const title = document.createElement("h3");
+    title.textContent = "Evoluções:";
+    section.append(title);
+
+    if (currentSpecies.evolves_to.length === 0) {
+      const message = document.createElement("p");
+      message.textContent = "Este Pokémon não possui evoluções.";
+      section.append(message);
+      return;
+    }
+
+    const list = document.createElement("ul");
+    list.classList.add("evolution-list");
+    const items = await Promise.all(
+      currentSpecies.evolves_to.map(createEvolutionItem)
+    );
+
+    if (searchId !== activeSearch) return;
+    list.append(...items);
+    section.append(list);
+  } catch {
+    if (searchId !== activeSearch) return;
+
+    section.replaceChildren();
+    const title = document.createElement("h3");
+    title.textContent = "Evoluções:";
+    const message = document.createElement("p");
+    message.textContent = "Não foi possível carregar as evoluções.";
+    message.classList.add("error");
+    section.append(title, message);
+  }
+}
+
+function findSpeciesInChain(node, speciesName) {
+  if (node.species.name === speciesName) {
+    return node;
+  }
+
+  for (const evolution of node.evolves_to) {
+    const match = findSpeciesInChain(evolution, speciesName);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+async function createEvolutionItem(evolution) {
+  const response = await fetch(
+    `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(evolution.species.name)}`
+  );
+  if (!response.ok) {
+    throw new Error(`Não foi possível carregar ${evolution.species.name}.`);
+  }
+
+  const evolvedPokemon = await response.json();
+  const item = document.createElement("li");
+  item.classList.add("evolution-item");
+
+  const imageUrl =
+    evolvedPokemon.sprites.other?.["official-artwork"]?.front_default ||
+    evolvedPokemon.sprites.front_default;
+
+  if (imageUrl) {
+    const image = document.createElement("img");
+    image.src = imageUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    item.append(image);
+  }
+
+  const name = document.createElement("span");
+  name.textContent = evolution.species.name;
+  item.append(name);
+
+  if (evolution.evolves_to.length > 0) {
+    const branches = document.createElement("ul");
+    branches.classList.add("evolution-list");
+    const children = await Promise.all(
+      evolution.evolves_to.map(createEvolutionItem)
+    );
+    branches.append(...children);
+    item.append(branches);
+  }
+
+  return item;
 }
