@@ -5,7 +5,14 @@ const results = document.querySelector("#results");
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const name = input.value.trim().toLowerCase();
+  // const name = input.value.trim().toLowerCase();
+  const name = input.value
+  .trim()
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "") // remove acentos
+  .replace(/[.'’:]/g, "")         // remove pontos e pontuação
+  .replace(/\s+/g, "-");           // espaços viram hífens
 
   if (!name) {
     showMessage("Digite o nome de um Pokémon.", true);
